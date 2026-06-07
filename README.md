@@ -174,3 +174,66 @@ HKCU\Software\AMAS\Olympia\
 - The `'1'`/`'2'` Qt signal/slot prefix in strings can be a noisy false positive when grepping for `activate`.
 
 </details>
+
+---------
+
+## Show password compareasons
+
+<details>
+    
+```
+Peux-tu me proposer un code frida pour catcher les comparaisons QtPrivate::equalStrings() à partir de la fonction à l'adresse ImageBase + 4e1d20 offset ?
+```
+
+ChatGPT:
+
+```
+const moduleName = "target.exe"; // ou libtarget.so
+const base = Module.findBaseAddress(moduleName);
+
+if (base === null) {
+    console.log("Module introuvable");
+    return;
+}
+
+const targetFunc = base.add(0x4e1d20);
+
+console.log("[+] targetFunc =", targetFunc);
+
+Interceptor.attach(targetFunc, {
+    onEnter(args) {
+        this.tid = Process.getCurrentThreadId();
+
+        Stalker.follow(this.tid, {
+            events: {
+                call: true
+            },
+
+            onCallSummary(summary) {
+                for (const addr in summary) {
+                    const target = ptr(addr);
+
+                    const sym = DebugSymbol.fromAddress(target);
+
+                    if (sym.name &&
+                        sym.name.indexOf("QtPrivate::equalStrings") !== -1) {
+
+                        console.log(
+                            "[equalStrings] appelé depuis targetFunc ->",
+                            target,
+                            sym.name
+                        );
+                    }
+                }
+            }
+        });
+    },
+
+    onLeave(retval) {
+        Stalker.unfollow(this.tid);
+        Stalker.garbageCollect();
+    }
+});
+```
+
+</details>
