@@ -137,8 +137,19 @@ Validation writes the same QSettings keys as the regular activation path.
 
 ## Persistent state
 
-All activation state lives in `QSettings("Olympia", <app>)`, i.e. under
-`HKCU\Software\Olympia\...` on Windows (or in an `.ini` if forced by org settings).
+All activation state lives in `QSettings("AMAS", "Olympia")`, i.e. under
+`HKCU\Software\AMAS\Olympia\` on Windows (NativeFormat by default).
+The Qt key `IA/Password` maps to the registry subkey
+`HKCU\Software\AMAS\Olympia\IA\Password`.
+
+```
+HKCU\Software\AMAS\Olympia\
+├── (Default)
+├── Installation        REG_DWORD   ← compteur d'essais (lockout à 5)
+├── Password            REG_SZ      ← password validé (en clair)
+└── IA\
+    └── Password        REG_SZ      ← marqueur module EgerIA (et probablement plus)
+```
 
 | Key | Role |
 |---|---|
