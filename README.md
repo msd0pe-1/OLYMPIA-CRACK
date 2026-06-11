@@ -179,61 +179,47 @@ HKCU\Software\AMAS\Olympia\
 
 ## Show password compareasons
 
+```
+Je suis actuellement sur un chall Jeopardy de reverse de CTF. Pour afficher le flag de validation, je dois réussir le check de licence. Je vois qu'il est fait avec 3 candidats:
+// Three candidate strings stored as widget members:
+//   this + 0x120 / 0x128  (ptr / length)
+//   this + 0x138 / 0x140
+//   this + 0x150 / 0x158
+// Comparison via QtPrivate::equalStrings()
+?
+Peux-tu m'aider à y parvenir ?
+```
+
 <details>
     
-```
-Peux-tu me proposer un code frida pour catcher les comparaisons QtPrivate::equalStrings() à partir de la fonction à l'adresse ImageBase + 4e1d20 offset ?
-```
-
-ChatGPT:
+Claude:
 
 ```
-const moduleName = "target.exe"; // ou libtarget.so
-const base = Module.findBaseAddress(moduleName);
+Je comprends la logique. Le check compare la saisie utilisateur à 3 mots de passe candidats stockés comme membres du widget (probablement initialisés dans le constructeur). Voici la logique exacte :
 
-if (base === null) {
-    console.log("Module introuvable");
-    return;
-}
+Pour chaque candidat i (offsets ptr/len) :
 
-const targetFunc = base.add(0x4e1d20);
+0x120/0x128 (candidat 1)
+0x138/0x140 (candidat 2)
+0x150/0x158 (candidat 3)
+Le check :
 
-console.log("[+] targetFunc =", targetFunc);
+if (saisie.size == widget[0x140] && equalStrings(saisie, widget[0x138]))  → OK
+else if (saisie.size == widget[0x128] && equalStrings(saisie, widget[0x120]))  → OK
+else if (saisie.size == widget[0x158] && equalStrings(saisie, widget[0x150]))  → OK
+N'importe lequel des 3 fonctionne. Il faut donc trouver où ces 3 QString sont assignés au widget.
 
-Interceptor.attach(targetFunc, {
-    onEnter(args) {
-        this.tid = Process.getCurrentThreadId();
+Pour les trouver, deux pistes dans Ghidra :
 
-        Stalker.follow(this.tid, {
-            events: {
-                call: true
-            },
+Constructeur du widget — trouve la classe de param_1. Le constructeur (ou une méthode d'init appelée tôt) écrit aux offsets +0x120, +0x138, +0x150. Cherche des mov [rcx+0x120], …, etc.
+XRefs aux offsets — utilise « References → Find references to address » sur les constantes 0x120, 0x138, 0x150 dans le contexte de cette classe, ou cherche les écritures vers ces membres.
+Tu as une session Ghidra connectée via MCP — veux-tu que je l'utilise pour :
 
-            onCallSummary(summary) {
-                for (const addr in summary) {
-                    const target = ptr(addr);
-
-                    const sym = DebugSymbol.fromAddress(target);
-
-                    if (sym.name &&
-                        sym.name.indexOf("QtPrivate::equalStrings") !== -1) {
-
-                        console.log(
-                            "[equalStrings] appelé depuis targetFunc ->",
-                            target,
-                            sym.name
-                        );
-                    }
-                }
-            }
-        });
-    },
-
-    onLeave(retval) {
-        Stalker.unfollow(this.tid);
-        Stalker.garbageCollect();
-    }
-});
+localiser le constructeur du widget et extraire les 3 chaînes directement, ou
+te guider sur les xrefs à examiner toi-même ?
+Si oui, dis-moi le nom (ou l'adresse) de la fonction parent / classe, ou laisse-moi explorer en partant de FUN_1404e2920 (xrefs vers cette fonction → on remontera à la classe).
 ```
+
+> Je n'arrive pas à trouver de xrefs, tu peux regarder toi même au travers du serveur MCP. La fonction de vérification est FUN_1404e2920.
 
 </details>
