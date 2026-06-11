@@ -222,4 +222,53 @@ Si oui, dis-moi le nom (ou l'adresse) de la fonction parent / classe, ou laisse-
 
 > Je n'arrive pas à trouver de xrefs, tu peux regarder toi même au travers du serveur MCP. La fonction de vérification est FUN_1404e2920.
 
+Voici ce que j'ai trouvé. Mauvaise nouvelle : **les 3 candidats ne sont pas hardcodés**. Bonne nouvelle : il y a des backdoors clavier, et une voie pratique.
+
+## Ce que fait le constructeur (`FUN_1404dc1c0`)
+
+À l'initialisation du widget, il construit DEUX chaînes "source" (à `+0xd0` et `+0xe8`) via [FUN_1404d5db0](src/FUN_1404d5db0) et [FUN_1404d62e0](src/FUN_1404d62e0). Ces deux fonctions :
+
+```
+srand(QDateTime::currentMSecsSinceEpoch());
+// pour chaque caractère : append(rand() char) puis append(derived char)
+```
+
+Puis trois fonctions de hash produisent les candidats stockés à `+0x118`/`+0x130`/`+0x148` :
+- [FUN_1404d7ab0](src/FUN_1404d7ab0) → **4 chiffres** (cand1)
+- [FUN_1404d7f60](src/FUN_1404d7f60) → **8 chiffres** (cand2)
+- [FUN_1404d8a70](src/FUN_1404d8a70) → **8 chiffres** (cand3)
+
+→ Conclusion : **les 3 candidats sont des nombres à 4/8/8 chiffres qui changent à chaque lancement** (graine = horodatage ms). Il n'existe aucun mot de passe statique dans le binaire.
+
+## Backdoors clavier découverts
+
+Le constructeur connecte 5 raccourcis `QShortcut` à des slots cachés. Chaque slot prompte un code et vérifie une formule date-dépendante :
+
+| Raccourci | Slot | Code aujourd'hui (2026-06-11) | Effet |
+|---|---|---|---|
+| **Ctrl+N** | `SecretReset` | `(d-m+y)*271` = **550 401** | vide `Password` dans QSettings |
+| **Ctrl+B** | `SecretUnblock` | `(y-d-m)*314` = **630 826** | remet `Installation` à 0 (**débloque**) |
+| **Ctrl+X** | `SecretUnblockCodex` | `(d+m+y)*666` = **1 360 638** | reset `InstallationCodex` |
+| **Ctrl+G** | `SecretResetIA` | `(d-m+y)*960` = **1 949 760** | vide la sous-clé IA |
+| **Ctrl+R** | `SecretPurgeRegistry` | `(y-d-m)*12` = **24 108** | purge tout le registre |
+
+Ton registre actuel : `Installation=4, Password=0`. **Le prochain essai raté → blocage permanent**. Donc avant tout : **Ctrl+B + 630826** pour repartir avec Installation=0.
+
+## Pour récupérer un candidat (3 approches)
+
+Vu que les candidats sont en mémoire à `widget+0x120/+0x138/+0x150` après init :
+
+**1. Dump mémoire au runtime (le plus propre)** — x64dbg sur Olympia.exe, breakpoint sur `0x1404e2aff` (le check du candidat 1), puis lire `*(rdi+0x120)` (pointeur UTF-16) et `*(rdi+0x128)` (longueur). Idem pour `+0x138`/`+0x140` et `+0x150`/`+0x158`.
+
+**2. Patch binaire** — forcer `QtPrivate::equalStrings` à retourner 1, ou patcher `0x1404e2b27` (le `lea r14, [rsp+0x110]` qui vient APRÈS les 3 checks ratés) en `jmp 0x1404e2d50` (succès) inconditionnel.
+
+**3. Patch côté `FUN_1404d5db0`** — neutraliser le `srand` pour qu'il prenne une graine fixe : la sortie devient déterministe et on peut la re-calculer offline.
+
+Tu veux que je :
+- **(a)** te génère le patch binaire minimal (option 2) avec offsets exacts,
+- **(b)** te guide pas-à-pas dans x64dbg pour dumper les 3 candidats,
+- **(c)** essaie de pousser Ghidra à décompiler `FUN_1404dc1c0` pour confirmer où vont `param_3`/`param_4` (au cas où les inputs viennent de QSettings/MAC et soient stables) ?
+
+Mon avis : (a) est le plus rapide pour voir le flag.
+
 </details>
