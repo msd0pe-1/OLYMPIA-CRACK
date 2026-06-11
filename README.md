@@ -313,5 +313,79 @@ Dis-moi ce que tu vois (capture, ou texte du popup/de la fenêtre principale). L
     
 </details>
 
+**Script**
+
+```
+# Olympia license-check bypass patch
+# Patch A (essential): FUN_1404d9cc0 -> always returns true (Start OLYMPIA unlocks instantly)
+# Patch B (bonus): in FUN_1404e2920, password compare path -> always jumps to success label
+#                  (so the "2- Activate" dialog accepts any input and shows success popup)
+
+param(
+    [string]$Src = 'C:\Program Files\Olympia\Olympia.exe',
+    [string]$Dst = "$env:USERPROFILE\Desktop\Olympia_patched.exe"
+)
+
+$ErrorActionPreference = 'Stop'
+
+if (-not (Test-Path $Src)) { throw "Source not found: $Src" }
+
+Write-Host "Reading $Src ..."
+$bytes = [System.IO.File]::ReadAllBytes($Src)
+Write-Host ("Size: {0:N0} bytes" -f $bytes.Length)
+
+# VA -> file offset: file = VA - 0x140000c00
+function PatchAt {
+    param([uint64]$VA, [byte[]]$Expected, [byte[]]$NewBytes, [string]$Label)
+    $off = [int]($VA - 0x140000c00)
+    Write-Host ""
+    Write-Host "[$Label] VA=0x$($VA.ToString('x'))  file_off=0x$($off.ToString('x'))"
+    $cur = $bytes[$off..($off + $Expected.Length - 1)]
+    $curStr = ($cur | ForEach-Object { $_.ToString('x2') }) -join ' '
+    $expStr = ($Expected | ForEach-Object { $_.ToString('x2') }) -join ' '
+    Write-Host "  current:  $curStr"
+    Write-Host "  expected: $expStr"
+    for ($i = 0; $i -lt $Expected.Length; $i++) {
+        if ($cur[$i] -ne $Expected[$i]) {
+            throw "  [$Label] MISMATCH at offset +$i. Refusing to patch."
+        }
+    }
+    for ($i = 0; $i -lt $NewBytes.Length; $i++) {
+        $bytes[$off + $i] = $NewBytes[$i]
+    }
+    $newStr = ($NewBytes | ForEach-Object { $_.ToString('x2') }) -join ' '
+    Write-Host "  patched:  $newStr  OK"
+}
+
+# Patch A: FUN_1404d9cc0 entry -> mov al,1 ; ret
+# Original prologue: 41 54 55 (push r12; push rbp; push rdi)
+# Replace first 3 bytes only; rest of prologue becomes dead code
+PatchAt -VA 0x1404d9cc0 `
+        -Expected ([byte[]](0x41,0x54,0x55)) `
+        -NewBytes ([byte[]](0xb0,0x01,0xc3)) `
+        -Label 'Patch A (FUN_1404d9cc0 = always true)'
+
+# Patch B: at 0x1404e2af9, JZ 0x1404e3120 -> JMP 0x1404e2d50 + NOP
+# Lets the success path run for any non-empty user input in the Activate dialog
+PatchAt -VA 0x1404e2af9 `
+        -Expected ([byte[]](0x0f,0x84,0x21,0x06,0x00,0x00)) `
+        -NewBytes ([byte[]](0xe9,0x52,0x02,0x00,0x00,0x90)) `
+        -Label 'Patch B (FUN_1404e2920 password check bypass)'
+
+Write-Host ""
+Write-Host "Writing $Dst ..."
+$dstDir = Split-Path -Parent $Dst
+if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
+[System.IO.File]::WriteAllBytes($Dst, $bytes)
+Write-Host ("Done. Patched copy: {0}" -f $Dst)
+Write-Host ""
+Write-Host "Run it from there (do NOT replace the original):"
+Write-Host "  & '$Dst'"
+Write-Host ""
+Write-Host "Then click 'Lancer OLYMPIA' / 'Start OLYMPIA'. Patch A makes that bypass the check."
+Write-Host "If the flag is hidden in the 'Activated' popup instead, click '2- Activer/Activate'"
+Write-Host "with any text (e.g. 'aaaa') -- patch B forces the success path."
+```
+
 <img width="557" height="511" alt="image" src="https://github.com/user-attachments/assets/c71ccfc5-e338-4496-b42e-9756ccfc014b" />
 
