@@ -1,6 +1,9 @@
 # OLYMPIA-CRACK
 OLYMPIA ASTRO CRACK: https://olympia-astrologie.com<br>
+
 Version: 5.13.5
+
+<details>
 
 <img width="1021" height="511" alt="image" src="https://github.com/user-attachments/assets/a15a9f59-c37c-47dc-87d9-135bfe3e2317" />
 
@@ -389,3 +392,92 @@ Write-Host "with any text (e.g. 'aaaa') -- patch B forces the success path."
 
 <img width="557" height="511" alt="image" src="https://github.com/user-attachments/assets/c71ccfc5-e338-4496-b42e-9756ccfc014b" />
 
+</details>
+
+Version: 5.14.0
+
+<details>
+
+## Get the installer
+> https://olympia-astrologie.com/wp-content/uploads/download-manager-files/OlympiaInstaller_5.14.0_Windows.exe
+
+## Easely retrieve the activation check function
+> 48 81 ec b0 00 00 00 48 8b b1 10 01 00 00
+
+## Crack by bypassing the activation check function
+
+```
+$source = "C:\Program Files\Olympia\Olympia.exe"
+$target = "C:\Program Files\Olympia\Olympia.patched.exe"
+
+# Signature qui identifie la fonction cible : sub rsp,0xB0 ; mov rsi,[rcx+0x110]
+$signature   = [byte[]](0x48, 0x81, 0xEC, 0xB0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xB1, 0x10, 0x01, 0x00, 0x00)
+# A remplacer : push r12 ; push rbp (debut du prologue, juste avant la signature)
+$pattern     = [byte[]](0x41, 0x54, 0x55)
+# Remplacement : mov al,1 ; ret (la fonction renvoie true immediatement)
+$replacement = [byte[]](0xB0, 0x01, 0xC3)
+
+# Fenetre de recherche en arriere : un prologue tient largement dans 64 octets
+$maxPrologue = 64
+
+if (-not (Test-Path -LiteralPath $source)) {
+    Write-Error "Fichier introuvable: $source"
+    exit 1
+}
+
+$bytes = [System.IO.File]::ReadAllBytes($source)
+
+function Find-All([byte[]]$haystack, [byte[]]$needle) {
+    $hits = New-Object System.Collections.Generic.List[int]
+    $limit = $haystack.Length - $needle.Length
+    for ($i = 0; $i -le $limit; $i++) {
+        $match = $true
+        for ($j = 0; $j -lt $needle.Length; $j++) {
+            if ($haystack[$i + $j] -ne $needle[$j]) { $match = $false; break }
+        }
+        if ($match) { $hits.Add($i) | Out-Null }
+    }
+    return $hits
+}
+
+$sigHits = Find-All $bytes $signature
+if ($sigHits.Count -eq 0) {
+    Write-Error "Signature de fonction non trouvee."
+    exit 1
+}
+Write-Host "$($sigHits.Count) occurrence(s) de signature trouvee(s)."
+
+$totalPatched = 0
+foreach ($sigPos in $sigHits) {
+    Write-Host ("`nSignature a l'offset 0x{0:X}" -f $sigPos)
+
+    # Recherche du prologue 41 54 55 dans une petite fenetre en arriere
+    $found = -1
+    $searchStart = [Math]::Max(0, $sigPos - $maxPrologue)
+    for ($i = $sigPos - $pattern.Length; $i -ge $searchStart; $i--) {
+        if ($bytes[$i] -eq $pattern[0] -and `
+            $bytes[$i + 1] -eq $pattern[1] -and `
+            $bytes[$i + 2] -eq $pattern[2]) {
+            $found = $i
+            break
+        }
+    }
+
+    if ($found -lt 0) {
+        Write-Warning ("  Prologue 41 54 55 non trouve dans les {0} octets avant la signature." -f $maxPrologue)
+        continue
+    }
+
+    for ($j = 0; $j -lt $replacement.Length; $j++) {
+        $bytes[$found + $j] = $replacement[$j]
+    }
+    Write-Host ("  Patche a l'offset 0x{0:X} (decalage {1} avant la signature)" -f $found, ($sigPos - $found))
+    $totalPatched++
+}
+
+[System.IO.File]::WriteAllBytes($target, $bytes)
+Write-Host "`n$totalPatched remplacement(s) effectue(s)."
+Write-Host "Fichier ecrit: $target"
+```
+
+</details>
